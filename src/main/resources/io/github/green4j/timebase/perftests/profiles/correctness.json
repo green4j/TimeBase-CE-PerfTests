@@ -1,0 +1,23 @@
+{
+  "name": "correctness",
+  "description": "8 live, one slow and one late-joining reader must each receive every message exactly once, in order, while the writer alternates bursts and pauses",
+  "type": "correctness",
+  "matrix": {"mode": ["MIN_CPU_USAGE", "LOW_LATENCY"]},
+  "depths": {
+    "fast": {
+      "repetitions": 1,
+      "params": {"total": 300000},
+      "suites": [{"name": "correctness", "matrix": {"burst": [0, 2000]}}]
+    },
+    "medium": {
+      "repetitions": 3,
+      "params": {"total": 3000000, "timeoutSeconds": 120},
+      "suites": [{"name": "correctness", "matrix": {"burst": [0, 50, 2000]}}]
+    },
+    "full": {
+      "repetitions": 10,
+      "params": {"total": 3000000, "timeoutSeconds": 120},
+      "suites": [{"name": "correctness", "matrix": {"burst": [0, 50, 2000]}}]
+    }
+  }
+}

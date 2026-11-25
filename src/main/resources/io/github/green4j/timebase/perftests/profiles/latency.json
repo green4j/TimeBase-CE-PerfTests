@@ -1,0 +1,28 @@
+{
+  "name": "latency",
+  "description": "Open-loop latency, 1 and 1 000 symbols, both loader modes, from light traffic up to production rates",
+  "type": "latency",
+  "loads": {"light": 1000, "moderate": 50000, "heavy": 200000, "saturation": 500000},
+  "params": {"payloadBytes": 200},
+  "matrix": {"mode": ["LOW_LATENCY", "MIN_CPU_USAGE"], "symbols": [1, 1000]},
+  "depths": {
+    "fast": {
+      "repetitions": 3,
+      "loads": ["light", "moderate", "heavy"],
+      "params": {"measureMessages": 300000, "measureSeconds": 10},
+      "suites": [{"name": "latency", "matrix": {"burst": [1]}}]
+    },
+    "medium": {
+      "repetitions": 7,
+      "loads": ["light", "moderate", "heavy"],
+      "params": {"warmupMessages": 500000, "measureMessages": 600000, "measureSeconds": 20},
+      "suites": [{"name": "latency", "matrix": {"burst": [1, 64]}}]
+    },
+    "full": {
+      "repetitions": 20,
+      "loads": ["light", "moderate", "heavy", "saturation"],
+      "params": {"warmupMessages": 500000, "measureMessages": 1500000, "measureSeconds": 30},
+      "suites": [{"name": "latency", "matrix": {"burst": [1, 64, 256]}}]
+    }
+  }
+}

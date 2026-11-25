@@ -1,0 +1,28 @@
+{
+  "name": "sanity",
+  "description": "A few minutes of functional checks: correctness plus one latency and one throughput scenario per mode; not performance evidence",
+  "params": {"payloadBytes": 200},
+  "matrix": {"mode": ["LOW_LATENCY", "MIN_CPU_USAGE"]},
+  "depths": {
+    "default": {
+      "repetitions": 1,
+      "suites": [
+        {
+          "name": "correctness",
+          "type": "correctness",
+          "params": {"total": 300000}
+        },
+        {
+          "name": "latency",
+          "type": "latency",
+          "params": {"rate": 200000, "warmupMessages": 100000, "measureSeconds": 5}
+        },
+        {
+          "name": "throughput",
+          "type": "throughput",
+          "params": {"symbols": 1000, "warmupSeconds": 2, "measureSeconds": 3}
+        }
+      ]
+    }
+  }
+}

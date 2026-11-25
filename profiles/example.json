@@ -1,0 +1,10 @@
+{
+  "name": "example",
+  "description": "Throughput of one writer and one reader with 64-byte payloads: a starting point for a profile of your own",
+  "type": "throughput",
+  "seed": 20261125,
+  "topology": "one2one",
+  "params": {"payloadBytes": 64},
+  "matrix": {"mode": ["MIN_CPU_USAGE", "LOW_LATENCY"], "symbols": [1, 1000]},
+  "repetitions": 5
+}

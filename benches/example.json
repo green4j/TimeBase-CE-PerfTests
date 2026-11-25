@@ -1,0 +1,21 @@
+{
+  "description": "The original against the patch, each with G1 and with the parallel GC; candidates pair with the baseline by configuration id",
+  "baseline": {
+    "id": "orig",
+    "git": {"repo": "../../TimeBase-CE", "ref": "6707be73"},
+    "configurations": [
+      {"id": "g1", "jvmArgs": ["-Xmx4g", "-Xms4g", "-XX:+UseG1GC"]},
+      {"id": "parallel", "jvmArgs": ["-Xmx4g", "-Xms4g", "-XX:+UseParallelGC"]}
+    ]
+  },
+  "candidates": [
+    {
+      "id": "f2",
+      "git": {"repo": "../../TimeBase-CE", "ref": "live-reader-notify-6.2"},
+      "configurations": [
+        {"id": "g1", "jvmArgs": ["-Xmx4g", "-Xms4g", "-XX:+UseG1GC"]},
+        {"id": "parallel", "jvmArgs": ["-Xmx4g", "-Xms4g", "-XX:+UseParallelGC"]}
+      ]
+    }
+  ]
+}

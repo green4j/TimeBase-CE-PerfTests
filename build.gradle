@@ -1,0 +1,40 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+
+group = 'io.github.green4j'
+version = '0.1.0-SNAPSHOT'
+
+repositories {
+    mavenCentral()
+}
+
+ext {
+    timebaseVersion = '6.2.34'
+}
+
+dependencies {
+    implementation "org.finos.timebase-ce:timebase-client:${timebaseVersion}"
+    implementation "org.finos.timebase-ce:timebase-api:${timebaseVersion}"
+    implementation "org.finos.timebase-ce:timebase-pub:${timebaseVersion}"
+    implementation 'org.hdrhistogram:HdrHistogram:2.1.12'
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.17.2'
+
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.3'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.release = 11
+    options.encoding = 'UTF-8'
+}
+
+test {
+    useJUnitPlatform()
+}
+
+application {
+    mainClass = 'io.github.green4j.timebase.perftests.Main'
+    applicationName = 'perftests'
+}

@@ -1,0 +1,21 @@
+{
+  "name": "throughput",
+  "description": "Writer max rate by symbol count, both loader modes",
+  "type": "throughput",
+  "params": {"payloadBytes": 200, "warmupSeconds": 3, "measureSeconds": 5},
+  "matrix": {"mode": ["MIN_CPU_USAGE", "LOW_LATENCY"]},
+  "depths": {
+    "fast": {
+      "repetitions": 3,
+      "suites": [{"name": "throughput", "matrix": {"symbols": [1, 1000, 25000]}}]
+    },
+    "medium": {
+      "repetitions": 7,
+      "suites": [{"name": "throughput", "matrix": {"symbols": [1, 10, 100, 1000, 25000, 131072]}}]
+    },
+    "full": {
+      "repetitions": 10,
+      "suites": [{"name": "throughput", "matrix": {"symbols": [1, 10, 100, 1000, 25000, 131072]}}]
+    }
+  }
+}
