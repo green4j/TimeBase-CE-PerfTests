@@ -433,7 +433,7 @@ runs made before it was measured — gets no table.
 | `latency` | p99 from schedule, max from schedule | ms | lower | `receive − scheduled`: transport plus the time the message waited to be sent |
 | `latency` | send() p99, send() max | µs | lower | How long the writer's `send()` took: serialising, the loader's buffer, and blocking when the server holds the writer back |
 | `throughput` | Writer rate | K msg/s | higher | Messages the writer sent per second |
-| `throughput` | Writer CPU | ns/msg | lower | CPU time of the writer's thread per message |
+| `throughput` | Writer CPU | ns/msg | lower | CPU time, user and kernel, of the writer's thread in the client per message; not the time it is blocked, the client's other threads, the server or the readers |
 | `correctness` | Pass | | 1 | 1 when every reader received every message exactly once, in order |
 
 The latencies of one message cover these intervals:

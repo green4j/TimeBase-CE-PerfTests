@@ -132,16 +132,29 @@ final class Report {
             md.printf("- Percentiles and max come first from the histograms of all the runs merged, as JMH pools samples, then "
                     + "`runs` gives the mean ± std dev of the runs' own values. Runs recorded without histograms get the mean only.%n");
         if (types.contains("latency")) {
-            md.printf("- Latency, lower is better: p50 … max are transport, `receive − sent` from just before the writer's "
-                    + "`send()`, the client library included; from schedule is `receive − scheduled` and adds the time a message "
-                    + "waited to be sent; send() is how long the writer's `send()` took, in µs.%n");
+            md.printf("- Latency metrics, all lower is better:%n");
+            md.printf("  - p50, p99, p99.9, p99.99, max, ms: transport, `receive − sent`, from just before the writer's `send()` "
+                    + "to the measured reader: the client library, the connection, the server, the delivery and the reader's "
+                    + "wakeup.%n");
+            md.printf("  - p99 and max from schedule, ms: `receive − scheduled`, transport plus the time the message waited to "
+                    + "be sent: a late writer, earlier `send()` calls that blocked, or the rest of its burst.%n");
+            md.printf("  - send() p99 and max, µs: how long the writer's `send()` call took: serialising, the loader's buffer, "
+                    + "and blocking when the server holds the writer back.%n");
             md.printf("- A long transport with a short send(): the delay is after the client, in the server or in the delivery. "
                     + "A long send(): the delay is in the send path — serialising, the loader's buffer, the writer's thread, "
                     + "or a server that holds the writer back.%n");
             md.printf("- p99.9, p99.99 and max come from a handful of messages per run: compare them over many repetitions (≥ 20).%n");
         }
-        if (types.contains("throughput"))
-            md.printf("- Throughput: writer rate in K msg/s, higher is better; writer CPU in ns per message, lower is better.%n");
+        if (types.contains("throughput")) {
+            md.printf("- Throughput metrics:%n");
+            md.printf("  - Writer rate, K msg/s, higher is better: messages the writer sent per second of the measurement "
+                    + "window. The writer sends as fast as `send()` lets it, so this is the rate the server takes them at.%n");
+            md.printf("  - Writer CPU, ns/msg, lower is better: CPU time, user and kernel, of the writer's thread in the client "
+                    + "over the window, per message. Time the thread is blocked, the client's other threads, the server and "
+                    + "the readers are not in it: it is the cost of sending in the client, not where the bottleneck is. Divided "
+                    + "by the time per message, 10⁶ / rate ns with the rate in K msg/s, it gives the share of time the thread "
+                    + "was on a CPU: 336 ns/msg at 412 K msg/s, 2 427 ns per message, is 14 %%.%n");
+        }
         if (types.contains("correctness"))
             md.printf("- Pass: 1 when every reader received every message exactly once, in order.%n");
         if (compared) {
