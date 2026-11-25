@@ -34,4 +34,13 @@ class StatsTest {
         assertEquals(0, s.std, 1e-9, "A single run reported a spread");
         assertEquals(3, s.median, 1e-9);
     }
+
+    @Test
+    void tQuantileFollowsTheTableAndTendsToTheNormal() {
+        assertEquals(12.706, Stats.t975(1), 1e-3, "Wrong t for 1 degree of freedom");
+        assertEquals(2.042, Stats.t975(30), 1e-3, "Wrong t for 30 degrees of freedom");
+        assertEquals(2.021, Stats.t975(40), 1e-3, "The expansion beyond the table is off");
+        assertEquals(1.984, Stats.t975(100), 1e-3, "The expansion beyond the table is off");
+        assertEquals(1.960, Stats.t975(100_000), 1e-3, "t does not tend to the normal quantile");
+    }
 }

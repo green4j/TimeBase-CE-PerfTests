@@ -104,7 +104,9 @@ readers ([Profile options](#profile-options)).
   200 bytes of payload (`payloadBytes`, on top of the message's own fields).
 - The messages measured are `measureMessages`, but no fewer than 3 s and no more than `measureSeconds` at the rate.
 - `--set=readers=…` replaces the topology; the campaign is then named `readers<values>` instead of `one2three`.
-- `fast` is a first look: three repetitions show large differences, not small ones. Decide on `medium` or `full`.
+- `fast` is a first look: three repetitions show large differences, not small ones, and give latency no interval of
+  Diff. Decide on `medium` or `full`: to see a difference of δ with 95 % confidence and 80 % power takes about
+  n ≈ (2.8 · σ / δ)² repetitions, σ the spread of the paired differences — 8 for a 5 % difference at 5 % spread.
 - Times are for a baseline and one candidate on a 10-core laptop; each further candidate adds the same again.
 
 Change any axis or parameter with `--set`; one value sets a parameter, several make an axis, `<suite>.` limits it
@@ -458,7 +460,12 @@ Percentiles of the intervals do not add up — the tails of different messages d
   in the delivery. A long `send()`: the delay is in the send path — serialising, the loader's buffer, the writer's
   thread being descheduled, or a server that holds the writer back; the later messages then also wait to be sent.
 - **Diff** is the candidate's pooled value, for throughput its mean, against the baseline's, in percent: negative is
-  better for latency and CPU, positive for the rate.
+  better for latency and CPU, positive for the rate. In brackets follows its 95 % confidence interval over the
+  repetitions, paired because the baseline and the candidates of a repetition run back to back on the same machine
+  state: `+10.0 % [+8.9, +11.0]`. `noise` marks an interval that holds 0, a difference the runs do not show. The
+  interval narrows as 1/√n: 3 repetitions show only large differences, conclusions about a few percent take 8–10 or
+  more. Read Diff with its interval rather than two cells' spreads; overlapping spreads do not mean there is no
+  difference.
 - **Wins** `k/n`: in `k` of `n` repetitions the candidate was better than the baseline in the same repetition.
   Read it with Diff: a large Diff with `k` close to `n` is a consistent difference; with `k` near `n/2` the
   candidate is not consistently better, and the Diff may come from outliers.
@@ -507,3 +514,9 @@ Percentiles of the intervals do not add up — the tails of different messages d
   percentiles. Next to it, every cell has the mean, the sample standard deviation and the coefficient of variation
   of the runs' own values; `summary.csv` adds the median and quartiles (linear interpolation), min and max. Diff
   compares the pooled values, or the means, Wins compares the runs of the same repetition.
+- **Interval of Diff**, 95 %, over the repetitions where both the baseline and the candidate are `ok`. Throughput
+  and runs without histograms: Student's t interval of the mean of `log(candidate / baseline)` per repetition, from
+  2 pairs; the log makes it an interval of the ratio and tames skewed values. Pooled latency: a percentile
+  bootstrap, 2 000 resamples of the pairs with a fixed seed, each pooling the histograms of the runs drawn, from 5
+  pairs, since fewer give too few distinct resamples. Runs, not messages, are resampled: the messages of a run share
+  its pauses and are not independent.

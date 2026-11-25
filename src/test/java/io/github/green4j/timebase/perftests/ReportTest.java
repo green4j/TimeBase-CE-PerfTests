@@ -8,6 +8,8 @@ import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -121,14 +123,12 @@ class ReportTest {
                 + " \"durationMillis\": 4000, \"metrics\": {\"transport\": " + Output.latency(h) + "}}";
     }
 
-    @Test
-    void percentilesComeFromTheHistogramsOfAllRuns(@TempDir Path dir) throws Exception {
+    /** Writes a campaign of orig against f2 with one suite and these runs, and makes its report. */
+    private static String report(Path dir, String suite, int repetitions, List<String> runs) throws Exception {
         Files.writeString(dir.resolve("campaign.json"), "{\"campaign\": \"t\", \"seed\": 1, \"baseline\": \"orig\","
                 + " \"profile\": {\"name\": \"t\", \"depth\": \"fast\"}, \"clients\": {\"default\": {}},"
                 + " \"servers\": [{\"id\": \"orig\", \"url\": \"u\"}, {\"id\": \"f2\", \"url\": \"u\"}],"
-                + " \"suites\": [{\"name\": \"latency\", \"type\": \"latency\", \"repetitions\": 2}]}");
-        final String[] runs = {latencyRun("orig", 1, 100, 0), latencyRun("orig", 2, 100, 2),
-                latencyRun("f2", 1, 100, 0), latencyRun("f2", 2, 100, 0)};
+                + " \"suites\": [{\"name\": \"" + suite + "\", \"type\": \"" + suite + "\", \"repetitions\": " + repetitions + "}]}");
         Files.createDirectories(dir.resolve("runs"));
         final StringBuilder plan = new StringBuilder("[");
         for (String r : runs) {
@@ -137,10 +137,68 @@ class ReportTest {
             plan.append(plan.length() > 1 ? ", " : "").append("{\"id\": \"").append(id).append("\"}");
         }
         Files.writeString(dir.resolve("expanded-plan.json"), plan.append("]").toString());
-
         Report.run(Args.parse(new String[] {"--results=" + dir}));
+        return Files.readString(dir.resolve("report.md"));
+    }
 
-        final String md = Files.readString(dir.resolve("report.md"));
+    private static String throughputRun(String server, int repetition, double rate) {
+        return "{\"id\": \"throughput_r0" + repetition + "_" + server + "\", \"suite\": \"throughput\", \"type\": \"throughput\","
+                + " \"server\": \"" + server + "\", \"repetition\": " + repetition + ", \"params\": {}, \"status\": \"ok\","
+                + " \"durationMillis\": 4000, \"metrics\": {\"writer\": {\"rate\": " + rate + "}}}";
+    }
+
+    private static String row(String md, String table) {
+        final String rest = md.substring(md.indexOf("### " + table));
+        return rest.substring(rest.indexOf("| all |"), rest.indexOf('\n', rest.indexOf("| all |")));
+    }
+
+    @Test
+    void diffHasThePairedIntervalOfTheRatio(@TempDir Path dir) throws Exception {
+        final double[] base = {500_000, 510_000, 490_000, 505_000, 495_000};
+        final double[] faster = {550_000, 565_000, 535_000, 560_000, 540_000};
+        final List<String> runs = new ArrayList<>();
+        for (int r = 0; r < base.length; r++) {
+            runs.add(throughputRun("orig", r + 1, base[r]));
+            runs.add(throughputRun("f2", r + 1, faster[r]));
+        }
+        final String row = row(report(dir, "throughput", 5, runs), "Writer rate");
+
+        assertTrue(row.contains("| +10.0 % [+8.9, +11.0] | 5/5 |"), "No t interval of the paired log ratio:\n" + row);
+    }
+
+    @Test
+    void intervalHoldingNoDifferenceIsNoise(@TempDir Path dir) throws Exception {
+        final double[] base = {500_000, 510_000, 490_000};
+        final double[] same = {505_000, 500_000, 495_000};
+        final List<String> runs = new ArrayList<>();
+        for (int r = 0; r < base.length; r++) {
+            runs.add(throughputRun("orig", r + 1, base[r]));
+            runs.add(throughputRun("f2", r + 1, same[r]));
+        }
+        final String row = row(report(dir, "throughput", 3, runs), "Writer rate");
+
+        assertTrue(row.matches(".*\\| [-+]\\d+\\.\\d % \\[-\\d+\\.\\d, \\+\\d+\\.\\d\\] noise \\| \\d/3 \\|$"),
+                "An interval across 0 is not marked as noise:\n" + row);
+    }
+
+    @Test
+    void pooledLatencyGetsABootstrapIntervalFromEnoughPairs(@TempDir Path dir) throws Exception {
+        final List<String> runs = new ArrayList<>();
+        for (int r = 1; r <= Report.MIN_BOOTSTRAP_PAIRS; r++) {
+            runs.add(latencyRun("orig", r, 100, 10));
+            runs.add(latencyRun("f2", r, 100, 0));
+        }
+        final String md = report(dir, "latency", Report.MIN_BOOTSTRAP_PAIRS, runs);
+
+        assertTrue(row(md, "p99, ms").contains("| -90.0 % [-90.0, -90.0] |"), "No bootstrap interval:\n" + row(md, "p99, ms"));
+        assertTrue(row(md, "p50, ms").contains("| +0.0 % [+0.0, +0.0] noise |"), "No bootstrap interval:\n" + row(md, "p50, ms"));
+    }
+
+    @Test
+    void percentilesComeFromTheHistogramsOfAllRuns(@TempDir Path dir) throws Exception {
+        final String md = report(dir, "latency", 2, List.of(latencyRun("orig", 1, 100, 0), latencyRun("orig", 2, 100, 2),
+                latencyRun("f2", 1, 100, 0), latencyRun("f2", 2, 100, 0)));
+
         final String p99 = md.substring(md.indexOf("### p99, ms"));
         assertTrue(p99.contains("| all | 1.00, runs 5.50 ± 6.37 (116 %) | 1.00, runs 1.00 ± 0.00 (0 %) | +0.0 % | 1/2 |"),
                 "p99 is not that of the pooled histograms, 2 slow messages of 200:\n" + p99);
@@ -148,7 +206,7 @@ class ReportTest {
         assertTrue(max.contains("| all | 10.00, runs 5.50 ± 6.37 (116 %) |"), "max is not the largest of all runs:\n" + max);
         final String csv = Files.readString(dir.resolve("summary.csv"));
         assertTrue(csv.contains("latency,\"all\",transport.p99,orig,2,5.5"), "summary.csv lost the runs' mean:\n" + csv);
-        assertTrue(csv.lines().anyMatch(l -> l.startsWith("latency,\"all\",transport.p99,orig,") && l.endsWith(",1.0004")),
+        assertTrue(csv.lines().anyMatch(l -> l.startsWith("latency,\"all\",transport.p99,orig,") && l.endsWith(",1.0004,,")),
                 "summary.csv has no pooled value:\n" + csv);
     }
 

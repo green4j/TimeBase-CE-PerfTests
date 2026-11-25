@@ -9,12 +9,14 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.SplittableRandom;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -143,7 +145,11 @@ final class Report {
         if (types.contains("correctness"))
             md.printf("- Pass: 1 when every reader received every message exactly once, in order.%n");
         if (compared) {
-            md.printf("- Diff: a candidate's pooled value, or mean, against that of the baseline `%s`, in percent.%n", baseline);
+            md.printf("- Diff: a candidate's pooled value, or mean, against that of the baseline `%s`, in percent, then the 95 %% "
+                    + "interval of that difference over the repetitions paired: `noise` when it holds 0. Throughput and runs "
+                    + "without histograms get Student's t interval of the mean log ratio, from 2 pairs; pooled latency a "
+                    + "bootstrap of the pairs, from %d. With 3 repetitions the interval is wide; conclusions take 8–10 or more.%n",
+                    baseline, MIN_BOOTSTRAP_PAIRS);
             md.printf("- Wins `k/n`: the candidate was better than the baseline in `k` of `n` repetitions paired by repetition. "
                     + "A large Diff with `k` near `n/2` is not a consistent difference and may come from outliers.%n");
         }
@@ -288,7 +294,7 @@ final class Report {
             final Set<String> types = new LinkedHashSet<>();
             campaign.path("suites").forEach(s -> types.add(s.path("type").asText()));
             howToRead(md, baseline, !candidates.isEmpty(), types);
-            csv.println("suite,scenario,metric,server,n,mean,std,cvPercent,median,q1,q3,min,max,diffPercent,wins,pairs,pooled");
+            csv.println("suite,scenario,metric,server,n,mean,std,cvPercent,median,q1,q3,min,max,diffPercent,wins,pairs,pooled,ciLowPercent,ciHighPercent");
             if (!missing.isEmpty()) {
                 md.printf("**Incomplete campaign:** %d of %d planned runs have no result yet.%n%n", missing.size(), planned.size());
                 for (String id : missing)
@@ -337,23 +343,26 @@ final class Report {
                         final Double bp = pooled(base, metric);
                         final StringBuilder row = new StringBuilder("| " + scenario.getKey() + " | " + cell(b, bp, metric, repetitions));
                         if (b != null)
-                            csv.println(csvLine(suite.getKey(), scenario.getKey(), metric, baseline, b, bp, null, -1, 0));
+                            csv.println(csvLine(suite.getKey(), scenario.getKey(), metric, baseline, b, bp, null, -1, 0) + ",,");
                         for (String c : candidates) {
                             final List<JsonNode> cand = scenario.getValue().getOrDefault(c, List.of());
                             final Stats s = stats(cand, metric);
                             final Double sp = pooled(cand, metric);
                             row.append(" | ").append(cell(s, sp, metric, repetitions));
                             if (b != null && s != null) {
-                                final double bv = bp != null && sp != null ? bp : b.mean;
-                                final double sv = bp != null && sp != null ? sp : s.mean;
+                                final boolean pooled = bp != null && sp != null;
+                                final double bv = pooled ? bp : b.mean;
+                                final double sv = pooled ? sp : s.mean;
                                 final double diff = bv != 0 ? (sv / bv - 1) * 100 : Double.NaN;
+                                final double[] ci = "correctness".equals(type) ? null : interval(base, cand, metric, pooled);
                                 final int[] wins = wins(base, cand, metric);
-                                row.append(String.format(Locale.ROOT, " | %+.1f %% | %d/%d", diff, wins[0], wins[1]));
-                                csv.println(csvLine(suite.getKey(), scenario.getKey(), metric, c, s, sp, diff, wins[0], wins[1]));
+                                row.append(String.format(Locale.ROOT, " | %+.1f %%%s | %d/%d", diff, interval(ci), wins[0], wins[1]));
+                                csv.println(csvLine(suite.getKey(), scenario.getKey(), metric, c, s, sp, diff, wins[0], wins[1])
+                                        + (ci != null ? "," + num(ci[0]) + "," + num(ci[1]) : ",,"));
                             } else {
                                 row.append(" | | ");
                                 if (s != null)
-                                    csv.println(csvLine(suite.getKey(), scenario.getKey(), metric, c, s, sp, null, -1, 0));
+                                    csv.println(csvLine(suite.getKey(), scenario.getKey(), metric, c, s, sp, null, -1, 0) + ",,");
                             }
                         }
                         md.println(row + " |");
@@ -643,31 +652,118 @@ final class Report {
      * of all its iterations; {@code null} when the metric is not one or a run that has the metric has no histogram.
      */
     private static Double pooled(List<JsonNode> runs, Metric metric) {
-        final int dot = metric.path.indexOf('.');
-        final String stat = metric.path.substring(dot + 1);
-        final double percentile;
-        if (stat.equals("max"))
-            percentile = 100;
-        else if (stat.matches("p\\d+(_\\d+)?"))
-            percentile = Double.parseDouble(stat.substring(1).replace('_', '.'));
-        else
+        final double percentile = percentile(metric);
+        if (Double.isNaN(percentile))
             return null;
-        Histogram all = null;
+        final List<Histogram> histograms = new ArrayList<>();
         for (JsonNode run : runs) {
             if (value(run, metric) == null)
                 continue;
-            final JsonNode encoded = run.path("metrics").path(metric.path.substring(0, dot)).path("histogram");
-            if (!encoded.isTextual())
+            final Histogram h = histogram(run, metric);
+            if (h == null)
                 return null;
-            final Histogram h = Output.decode(encoded.asText());
-            if (all == null)
-                all = h;
-            else
-                all.add(h);
+            histograms.add(h);
         }
-        if (all == null)
+        if (histograms.isEmpty())
             return null;
-        return (percentile == 100 ? all.getMaxValue() : all.getValueAtPercentile(percentile)) / 1e3 * metric.scale;
+        final int[] all = new int[histograms.size()];
+        Arrays.fill(all, 1);
+        return new PooledHistograms(histograms).valueAtPercentile(all, percentile) / 1e3 * metric.scale;
+    }
+
+    /** The percentile a latency metric is, 100 for max, or NaN for a metric that is not one. */
+    private static double percentile(Metric metric) {
+        final String stat = metric.path.substring(metric.path.indexOf('.') + 1);
+        if (stat.equals("max"))
+            return 100;
+        if (stat.matches("p\\d+(_\\d+)?"))
+            return Double.parseDouble(stat.substring(1).replace('_', '.'));
+        return Double.NaN;
+    }
+
+    private static Histogram histogram(JsonNode run, Metric metric) {
+        final JsonNode encoded = run.path("metrics").path(metric.path.substring(0, metric.path.indexOf('.'))).path("histogram");
+        return encoded.isTextual() ? Output.decode(encoded.asText()) : null;
+    }
+
+    /** Fewer pairs give a bootstrap only a handful of distinct resamples, and an interval that is too narrow. */
+    static final int MIN_BOOTSTRAP_PAIRS = 5;
+    static final int BOOTSTRAP_RESAMPLES = 2000;
+
+    /**
+     * The 95 % interval of the candidate against the baseline, in percent, from the repetitions where both have the
+     * metric: for pooled latency a percentile bootstrap that resamples the pairs and pools the histograms of each
+     * resample, otherwise Student's t interval of the mean log ratio. {@code null} with too few pairs.
+     */
+    private static double[] interval(List<JsonNode> base, List<JsonNode> cand, Metric metric, boolean pooled) {
+        final Map<Integer, JsonNode> byRepetition = new TreeMap<>();
+        for (JsonNode r : base) {
+            if (value(r, metric) != null)
+                byRepetition.put(r.path("repetition").asInt(), r);
+        }
+        final List<JsonNode[]> pairs = new ArrayList<>();
+        for (JsonNode r : cand) {
+            final JsonNode other = byRepetition.get(r.path("repetition").asInt());
+            if (other != null && value(r, metric) != null)
+                pairs.add(new JsonNode[] {other, r});
+        }
+        return pooled ? bootstrap(pairs, metric) : logRatioInterval(pairs, metric);
+    }
+
+    private static double[] logRatioInterval(List<JsonNode[]> pairs, Metric metric) {
+        final int n = pairs.size();
+        if (n < 2)
+            return null;
+        final double[] logs = new double[n];
+        for (int i = 0; i < n; i++) {
+            final double b = value(pairs.get(i)[0], metric);
+            final double c = value(pairs.get(i)[1], metric);
+            if (b <= 0 || c <= 0)
+                return null;
+            logs[i] = Math.log(c / b);
+        }
+        final Stats s = Stats.of(logs);
+        final double half = Stats.t975(n - 1) * s.std / Math.sqrt(n);
+        return new double[] {(Math.exp(s.mean - half) - 1) * 100, (Math.exp(s.mean + half) - 1) * 100};
+    }
+
+    private static double[] bootstrap(List<JsonNode[]> pairs, Metric metric) {
+        final int n = pairs.size();
+        if (n < MIN_BOOTSTRAP_PAIRS)
+            return null;
+        final List<Histogram> base = new ArrayList<>();
+        final List<Histogram> cand = new ArrayList<>();
+        for (JsonNode[] pair : pairs) {
+            base.add(histogram(pair[0], metric));
+            cand.add(histogram(pair[1], metric));
+        }
+        final PooledHistograms b = new PooledHistograms(base);
+        final PooledHistograms c = new PooledHistograms(cand);
+        final double percentile = percentile(metric);
+        final SplittableRandom random = new SplittableRandom(1);
+        final int[] weights = new int[n];
+        final double[] ratios = new double[BOOTSTRAP_RESAMPLES];
+        int count = 0;
+        for (int i = 0; i < BOOTSTRAP_RESAMPLES; i++) {
+            Arrays.fill(weights, 0);
+            for (int k = 0; k < n; k++)
+                weights[random.nextInt(n)]++;
+            final long bv = b.valueAtPercentile(weights, percentile);
+            if (bv > 0)
+                ratios[count++] = (double) c.valueAtPercentile(weights, percentile) / bv;
+        }
+        if (count == 0)
+            return null;
+        final double[] sorted = Arrays.copyOf(ratios, count);
+        Arrays.sort(sorted);
+        return new double[] {(Stats.quantile(sorted, 0.025) - 1) * 100, (Stats.quantile(sorted, 0.975) - 1) * 100};
+    }
+
+    /** {@code  [lo, hi]}, with {@code  noise} when the interval holds no difference; empty without an interval. */
+    static String interval(double[] ci) {
+        if (ci == null)
+            return "";
+        return String.format(Locale.ROOT, " [%+.1f, %+.1f]", ci[0], ci[1]) + (ci[0] <= 0 && ci[1] >= 0 ? " noise" : "");
     }
 
     /** The pooled value if every run has a histogram, otherwise the mean over the runs. */
