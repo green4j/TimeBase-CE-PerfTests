@@ -305,6 +305,10 @@ final class Profiles {
         return servers;
     }
 
+    private static String absolute(String path) {
+        return Path.of(path.replaceFirst("^~", System.getProperty("user.home"))).toAbsolutePath().normalize().toString();
+    }
+
     /** {@code [id=]dist:<dir>[+overlay:<jar>]}, {@code [id=]git:<repo>@<ref>}, {@code [id=]image:<tag>}, {@code [id=]url:<url>}. */
     static ObjectNode server(String spec, String defaultId) {
         final Matcher m = SERVER.matcher(spec);
@@ -323,9 +327,10 @@ final class Profiles {
                 final String overlay = plus < 0 ? null : value.substring(plus + "+overlay:".length());
                 if (dist.isEmpty() || (overlay != null && overlay.isEmpty()))
                     throw new IllegalArgumentException("Expected dist:<dir>[+overlay:<jar>], got " + spec);
-                v.put("dist", dist);
+                // The server runs in its own home directory, so a relative path would not resolve there
+                v.put("dist", absolute(dist));
                 if (overlay != null)
-                    v.put("overlay", overlay);
+                    v.put("overlay", absolute(overlay));
                 break;
             }
             case "git": {

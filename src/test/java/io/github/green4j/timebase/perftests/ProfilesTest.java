@@ -21,6 +21,16 @@ class ProfilesTest {
     }
 
     @Test
+    void distAndOverlayOfTheCommandLineBecomeAbsolute() {
+        final ObjectNode s = Profiles.server("x=dist:results/tb+overlay:p.jar", null);
+        final java.nio.file.Path cwd = java.nio.file.Path.of("").toAbsolutePath();
+
+        assertEquals(cwd.resolve("results/tb").toString(), s.path("dist").asText(),
+                "A relative dist stays relative, and the server, which runs in its home directory, does not find it");
+        assertEquals(cwd.resolve("p.jar").toString(), s.path("overlay").asText(), "A relative overlay stays relative");
+    }
+
+    @Test
     void latencyFastOneToSix() throws Exception {
         final ObjectNode c = generate("--profile=latency", "--depth=fast", "--topology=one2six",
                 "--baseline=dist:/tb", "--candidate=dist:/tb+overlay:/p.jar");
