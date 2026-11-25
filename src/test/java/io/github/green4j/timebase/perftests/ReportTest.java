@@ -110,6 +110,48 @@ class ReportTest {
         assertFalse(md.contains("### Writer CPU"), "A metric no run has got an empty table:\n" + md);
     }
 
+    /** A latency run with {@code n} messages of 1 ms and {@code slow} of them of 10 ms instead. */
+    private static String latencyRun(String server, int repetition, int n, int slow) {
+        final org.HdrHistogram.Histogram h = new org.HdrHistogram.Histogram(3);
+        h.recordValueWithCount(1_000_000, n - slow);
+        if (slow > 0)
+            h.recordValueWithCount(10_000_000, slow);
+        return "{\"id\": \"latency_r0" + repetition + "_" + server + "\", \"suite\": \"latency\", \"type\": \"latency\","
+                + " \"server\": \"" + server + "\", \"repetition\": " + repetition + ", \"params\": {}, \"status\": \"ok\","
+                + " \"durationMillis\": 4000, \"metrics\": {\"transport\": " + Output.latency(h) + "}}";
+    }
+
+    @Test
+    void percentilesComeFromTheHistogramsOfAllRuns(@TempDir Path dir) throws Exception {
+        Files.writeString(dir.resolve("campaign.json"), "{\"campaign\": \"t\", \"seed\": 1, \"baseline\": \"orig\","
+                + " \"profile\": {\"name\": \"t\", \"depth\": \"fast\"}, \"clients\": {\"default\": {}},"
+                + " \"servers\": [{\"id\": \"orig\", \"url\": \"u\"}, {\"id\": \"f2\", \"url\": \"u\"}],"
+                + " \"suites\": [{\"name\": \"latency\", \"type\": \"latency\", \"repetitions\": 2}]}");
+        final String[] runs = {latencyRun("orig", 1, 100, 0), latencyRun("orig", 2, 100, 2),
+                latencyRun("f2", 1, 100, 0), latencyRun("f2", 2, 100, 0)};
+        Files.createDirectories(dir.resolve("runs"));
+        final StringBuilder plan = new StringBuilder("[");
+        for (String r : runs) {
+            final String id = Output.JSON.readTree(r).path("id").asText();
+            Files.writeString(dir.resolve("runs").resolve(id + ".json"), r);
+            plan.append(plan.length() > 1 ? ", " : "").append("{\"id\": \"").append(id).append("\"}");
+        }
+        Files.writeString(dir.resolve("expanded-plan.json"), plan.append("]").toString());
+
+        Report.run(Args.parse(new String[] {"--results=" + dir}));
+
+        final String md = Files.readString(dir.resolve("report.md"));
+        final String p99 = md.substring(md.indexOf("### p99, ms"));
+        assertTrue(p99.contains("| all | 1.00, runs 5.50 ± 6.37 (116 %) | 1.00, runs 1.00 ± 0.00 (0 %) | +0.0 % | 1/2 |"),
+                "p99 is not that of the pooled histograms, 2 slow messages of 200:\n" + p99);
+        final String max = md.substring(md.indexOf("### max, ms"));
+        assertTrue(max.contains("| all | 10.00, runs 5.50 ± 6.37 (116 %) |"), "max is not the largest of all runs:\n" + max);
+        final String csv = Files.readString(dir.resolve("summary.csv"));
+        assertTrue(csv.contains("latency,\"all\",transport.p99,orig,2,5.5"), "summary.csv lost the runs' mean:\n" + csv);
+        assertTrue(csv.lines().anyMatch(l -> l.startsWith("latency,\"all\",transport.p99,orig,") && l.endsWith(",1.0004")),
+                "summary.csv has no pooled value:\n" + csv);
+    }
+
     @Test
     void unknownBaselineIsAnError(@TempDir Path dir) throws Exception {
         assertThrows(IllegalArgumentException.class, () -> Report.run(Args.parse(new String[] {"--results=" + results(dir), "--baseline=nope"})));

@@ -5,6 +5,11 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import org.HdrHistogram.Histogram;
 
+import java.nio.ByteBuffer;
+import java.util.Arrays;
+import java.util.Base64;
+import java.util.zip.DataFormatException;
+
 /**
  * Protocol between a client process and the runner: lines on stdout starting with {@link #READY} or {@link #RESULT}.
  */
@@ -33,7 +38,7 @@ final class Output {
         }
     }
 
-    /** Percentiles of a nanosecond histogram, in microseconds. */
+    /** Percentiles of a nanosecond histogram, in microseconds, and the histogram itself, so that runs can be pooled. */
     static ObjectNode latency(Histogram h) {
         final ObjectNode node = JSON.createObjectNode();
         node.put("count", h.getTotalCount());
@@ -44,6 +49,22 @@ final class Output {
         node.put("p99_99", h.getValueAtPercentile(99.99) / 1e3);
         node.put("max", h.getMaxValue() / 1e3);
         node.put("mean", h.getMean() / 1e3);
+        node.put("histogram", encode(h));
         return node;
+    }
+
+    /** The compressed HdrHistogram encoding, in base64. */
+    static String encode(Histogram h) {
+        final ByteBuffer buffer = ByteBuffer.allocate(h.getNeededByteBufferCapacity());
+        final int length = h.encodeIntoCompressedByteBuffer(buffer);
+        return Base64.getEncoder().encodeToString(Arrays.copyOf(buffer.array(), length));
+    }
+
+    static Histogram decode(String base64) {
+        try {
+            return Histogram.decodeFromCompressedByteBuffer(ByteBuffer.wrap(Base64.getDecoder().decode(base64)), 0);
+        } catch (DataFormatException e) {
+            throw new IllegalArgumentException("Not a compressed histogram: " + e.getMessage(), e);
+        }
     }
 }

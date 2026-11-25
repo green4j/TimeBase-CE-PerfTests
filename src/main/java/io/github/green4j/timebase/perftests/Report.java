@@ -1,6 +1,7 @@
 package io.github.green4j.timebase.perftests;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import org.HdrHistogram.Histogram;
 
 import java.io.IOException;
 import java.io.PrintWriter;
@@ -125,6 +126,9 @@ final class Report {
         md.printf("- Only planned runs with status `ok` are aggregated.%n");
         md.printf("- A cell is the mean ± std dev over repetitions and the coefficient of variation; `n=… of …` when fewer runs "
                 + "than planned are ok.%n");
+        if (types.contains("latency"))
+            md.printf("- Percentiles and max come first from the histograms of all the runs merged, as JMH pools samples, then "
+                    + "`runs` gives the mean ± std dev of the runs' own values. Runs recorded without histograms get the mean only.%n");
         if (types.contains("latency")) {
             md.printf("- Latency, lower is better: p50 … max are transport, `receive − sent` from just before the writer's "
                     + "`send()`, the client library included; from schedule is `receive − scheduled` and adds the time a message "
@@ -139,7 +143,7 @@ final class Report {
         if (types.contains("correctness"))
             md.printf("- Pass: 1 when every reader received every message exactly once, in order.%n");
         if (compared) {
-            md.printf("- Diff: a candidate's mean against the mean of the baseline `%s`, in percent.%n", baseline);
+            md.printf("- Diff: a candidate's pooled value, or mean, against that of the baseline `%s`, in percent.%n", baseline);
             md.printf("- Wins `k/n`: the candidate was better than the baseline in `k` of `n` repetitions paired by repetition. "
                     + "A large Diff with `k` near `n/2` is not a consistent difference and may come from outliers.%n");
         }
@@ -284,7 +288,7 @@ final class Report {
             final Set<String> types = new LinkedHashSet<>();
             campaign.path("suites").forEach(s -> types.add(s.path("type").asText()));
             howToRead(md, baseline, !candidates.isEmpty(), types);
-            csv.println("suite,scenario,metric,server,n,mean,std,cvPercent,median,q1,q3,min,max,diffPercent,wins,pairs");
+            csv.println("suite,scenario,metric,server,n,mean,std,cvPercent,median,q1,q3,min,max,diffPercent,wins,pairs,pooled");
             if (!missing.isEmpty()) {
                 md.printf("**Incomplete campaign:** %d of %d planned runs have no result yet.%n%n", missing.size(), planned.size());
                 for (String id : missing)
@@ -330,22 +334,26 @@ final class Report {
                     for (Map.Entry<String, Map<String, List<JsonNode>>> scenario : byScenario.entrySet()) {
                         final List<JsonNode> base = scenario.getValue().getOrDefault(baseline, List.of());
                         final Stats b = stats(base, metric);
-                        final StringBuilder row = new StringBuilder("| " + scenario.getKey() + " | " + cell(b, metric, repetitions));
+                        final Double bp = pooled(base, metric);
+                        final StringBuilder row = new StringBuilder("| " + scenario.getKey() + " | " + cell(b, bp, metric, repetitions));
                         if (b != null)
-                            csv.println(csvLine(suite.getKey(), scenario.getKey(), metric, baseline, b, null, -1, 0));
+                            csv.println(csvLine(suite.getKey(), scenario.getKey(), metric, baseline, b, bp, null, -1, 0));
                         for (String c : candidates) {
                             final List<JsonNode> cand = scenario.getValue().getOrDefault(c, List.of());
                             final Stats s = stats(cand, metric);
-                            row.append(" | ").append(cell(s, metric, repetitions));
+                            final Double sp = pooled(cand, metric);
+                            row.append(" | ").append(cell(s, sp, metric, repetitions));
                             if (b != null && s != null) {
-                                final double diff = b.mean != 0 ? (s.mean / b.mean - 1) * 100 : Double.NaN;
+                                final double bv = bp != null && sp != null ? bp : b.mean;
+                                final double sv = bp != null && sp != null ? sp : s.mean;
+                                final double diff = bv != 0 ? (sv / bv - 1) * 100 : Double.NaN;
                                 final int[] wins = wins(base, cand, metric);
                                 row.append(String.format(Locale.ROOT, " | %+.1f %% | %d/%d", diff, wins[0], wins[1]));
-                                csv.println(csvLine(suite.getKey(), scenario.getKey(), metric, c, s, diff, wins[0], wins[1]));
+                                csv.println(csvLine(suite.getKey(), scenario.getKey(), metric, c, s, sp, diff, wins[0], wins[1]));
                             } else {
                                 row.append(" | | ");
                                 if (s != null)
-                                    csv.println(csvLine(suite.getKey(), scenario.getKey(), metric, c, s, null, -1, 0));
+                                    csv.println(csvLine(suite.getKey(), scenario.getKey(), metric, c, s, sp, null, -1, 0));
                             }
                         }
                         md.println(row + " |");
@@ -529,7 +537,8 @@ final class Report {
     private static void schedule(PrintWriter md, Map<String, Map<String, List<JsonNode>>> byScenario, String baseline,
                                  List<String> candidates) {
         md.printf("### Writer and schedule%n%n");
-        md.printf("Means of p99 and max from schedule against transport, over the runs that have both. On time within %.0f %%: "
+        md.printf("p99 and max from schedule against transport over the pooled histograms of the runs that have both, "
+                + "means over runs recorded without histograms. On time within %.0f %%: "
                 + "the writer started `send()` on schedule, the delay is in `send()` or after it. Late to send: messages waited "
                 + "to be sent — a late wakeup, blocked earlier sends, a burst, or a server that does not keep up.%n%n",
                 ON_SCHEDULE * 100);
@@ -555,8 +564,8 @@ final class Report {
                     .collect(Collectors.toList());
             if (both.isEmpty())
                 return "";
-            final double transport = stats(both, t).mean;
-            final double gap = stats(both, s).mean - transport;
+            final double transport = pooledOrMean(both, t);
+            final double gap = pooledOrMean(both, s) - transport;
             if (gap > transport * ON_SCHEDULE)
                 late.add(String.format(Locale.ROOT, "%s +%.2f ms", q, gap));
         }
@@ -607,20 +616,64 @@ final class Report {
         return new int[] {wins, pairs};
     }
 
-    /** Mean ± std dev (CV); the number of runs only when fewer than the repetitions planned. */
-    private static String cell(Stats s, Metric metric, int planned) {
+    /**
+     * Mean ± std dev (CV), or with the pooled value the pooled value and then the runs' mean ± std dev (CV); the
+     * number of runs only when fewer than the repetitions planned.
+     */
+    private static String cell(Stats s, Double pooled, Metric metric, int planned) {
         if (s == null)
             return "";
-        final String format = metric.scale < 1 ? "%.2f ± %.2f (%.0f %%)" : "%.1f ± %.1f (%.0f %%)";
-        return String.format(Locale.ROOT, format, s.mean, s.std, s.cv()) + (s.n < planned ? " n=" + s.n + " of " + planned : "");
+        final String number = metric.scale < 1 ? "%.2f" : "%.1f";
+        final String runs = String.format(Locale.ROOT, number + " ± " + number + " (%.0f %%)", s.mean, s.std, s.cv());
+        return (pooled != null ? String.format(Locale.ROOT, number + ", runs ", pooled) + runs : runs)
+                + (s.n < planned ? " n=" + s.n + " of " + planned : "");
     }
 
-    private static String csvLine(String suite, String scenario, Metric metric, String server, Stats s,
+    private static String csvLine(String suite, String scenario, Metric metric, String server, Stats s, Double pooled,
                                   Double diff, int wins, int pairs) {
         return String.join(",", suite, "\"" + scenario + "\"", metric.path, server, Integer.toString(s.n),
                 num(s.mean), num(s.std), num(s.cv()), num(s.median), num(s.q1), num(s.q3), num(s.min), num(s.max),
                 diff != null ? num(diff) : "",
-                wins >= 0 ? Integer.toString(wins) : "", wins >= 0 ? Integer.toString(pairs) : "");
+                wins >= 0 ? Integer.toString(wins) : "", wins >= 0 ? Integer.toString(pairs) : "",
+                pooled != null ? num(pooled) : "");
+    }
+
+    /**
+     * A percentile or the max over the merged histograms of the runs, as JMH computes percentiles over the samples
+     * of all its iterations; {@code null} when the metric is not one or a run that has the metric has no histogram.
+     */
+    private static Double pooled(List<JsonNode> runs, Metric metric) {
+        final int dot = metric.path.indexOf('.');
+        final String stat = metric.path.substring(dot + 1);
+        final double percentile;
+        if (stat.equals("max"))
+            percentile = 100;
+        else if (stat.matches("p\\d+(_\\d+)?"))
+            percentile = Double.parseDouble(stat.substring(1).replace('_', '.'));
+        else
+            return null;
+        Histogram all = null;
+        for (JsonNode run : runs) {
+            if (value(run, metric) == null)
+                continue;
+            final JsonNode encoded = run.path("metrics").path(metric.path.substring(0, dot)).path("histogram");
+            if (!encoded.isTextual())
+                return null;
+            final Histogram h = Output.decode(encoded.asText());
+            if (all == null)
+                all = h;
+            else
+                all.add(h);
+        }
+        if (all == null)
+            return null;
+        return (percentile == 100 ? all.getMaxValue() : all.getValueAtPercentile(percentile)) / 1e3 * metric.scale;
+    }
+
+    /** The pooled value if every run has a histogram, otherwise the mean over the runs. */
+    private static double pooledOrMean(List<JsonNode> runs, Metric metric) {
+        final Double pooled = pooled(runs, metric);
+        return pooled != null ? pooled : stats(runs, metric).mean;
     }
 
     private static String num(double v) {

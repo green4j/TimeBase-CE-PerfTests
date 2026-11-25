@@ -418,7 +418,8 @@ so deleting a campaign directory frees its builds on the next run.
 
 Every metric table has a row per scenario and a column per baseline and candidate. A cell is the mean ± sample
 standard deviation over repetitions and the coefficient of variation; `n=… of …` when fewer runs than planned are
-`ok`. `summary.csv` also has the median, quartiles, min and max. A metric no `ok` run of the suite has — `send()` in
+`ok`. A latency percentile or max comes first from the merged histograms of the runs, then `runs` gives the mean ±
+standard deviation of the runs' own values: `1.10, runs 1.12 ± 0.05 (4 %)`. `summary.csv` also has the median, quartiles, min and max. A metric no `ok` run of the suite has — `send()` in
 runs made before it was measured — gets no table.
 
 | Suite | Table | Unit | Better | Meaning |
@@ -456,13 +457,14 @@ Percentiles of the intervals do not add up — the tails of different messages d
 - **Transport and send().** A long transport with a short `send()`: the delay is after the client, in the server or
   in the delivery. A long `send()`: the delay is in the send path — serialising, the loader's buffer, the writer's
   thread being descheduled, or a server that holds the writer back; the later messages then also wait to be sent.
-- **Diff** is the candidate's mean against the baseline's, in percent: negative is better for latency and CPU,
-  positive for the rate.
+- **Diff** is the candidate's pooled value, for throughput its mean, against the baseline's, in percent: negative is
+  better for latency and CPU, positive for the rate.
 - **Wins** `k/n`: in `k` of `n` repetitions the candidate was better than the baseline in the same repetition.
   Read it with Diff: a large Diff with `k` close to `n` is a consistent difference; with `k` near `n/2` the
   candidate is not consistently better, and the Diff may come from outliers.
-- **Tails.** p99.9, p99.99 and max of one run come from a handful of messages and vary a lot between runs. Compare
-  them over many repetitions (≥ 20), never as one pooled maximum, and on a machine where nothing else runs.
+- **Tails.** p99.9, p99.99 and max of one run come from a handful of messages and vary a lot between runs. The
+  pooled max is the worst message of all runs: compare the tails over many repetitions (≥ 20), with Wins and the
+  spread of the runs, and on a machine where nothing else runs.
 
 ## Methodology
 
@@ -496,3 +498,12 @@ Percentiles of the intervals do not add up — the tails of different messages d
   TimeBase orders the messages of different symbols only by timestamp. Missing messages (`lost`), sequence
   violations or negative latencies make the run invalid. `actualRate` is measured between the first and the last
   measured send.
+- **Calculation**, as JMH does it. Throughput: a run gives the messages sent after the warmup divided by the time
+  they took, and the writer thread's CPU time divided by the same messages; the report takes the arithmetic mean
+  over the `ok` runs of a scenario. Latency: a run records every measured message in an HdrHistogram (3
+  significant digits) and stores it with its percentiles; the report merges the histograms of the `ok` runs of a
+  scenario and takes p50 … p99.99 and max from the merged one, so a pause in one run weighs by the messages it
+  delayed among all the measured ones, not by a whole run. Runs recorded without histograms get the mean of their
+  percentiles. Next to it, every cell has the mean, the sample standard deviation and the coefficient of variation
+  of the runs' own values; `summary.csv` adds the median and quartiles (linear interpolation), min and max. Diff
+  compares the pooled values, or the means, Wins compares the runs of the same repetition.
