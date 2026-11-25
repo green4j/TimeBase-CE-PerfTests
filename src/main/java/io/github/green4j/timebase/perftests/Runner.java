@@ -20,6 +20,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -44,6 +45,7 @@ final class Runner {
 
     /** Returns whether every run of the campaign is {@code ok}. */
     static boolean run(Args args) throws Exception {
+        stopChildrenOnExit();
         final ObjectNode campaign = Profiles.generate(args);
         final ObjectNode generated = campaign.deepCopy();
         if (args.bool("print", false)) {
@@ -94,6 +96,25 @@ final class Runner {
         final boolean ok = runner.execute(plan);
         Report.run(Args.parse(new String[] {"--results=" + out}));
         return ok;
+    }
+
+    /**
+     * A runner stopped by a signal stops what it has started — a build, a server, a client — instead of leaving it
+     * to write into the build cache or hold the server port. Does not help against {@code kill -9}.
+     */
+    static void stopChildrenOnExit() {
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            final List<ProcessHandle> children = new ArrayList<>();
+            ProcessHandle.current().descendants().forEach(children::add);
+            children.forEach(ProcessHandle::destroy);
+            for (ProcessHandle child : children) {
+                try {
+                    child.onExit().get(10, TimeUnit.SECONDS);
+                } catch (Exception e) {
+                    child.destroyForcibly();
+                }
+            }
+        }, "stop-children"));
     }
 
     private void checkResumable(List<Plan.Run> plan) throws Exception {

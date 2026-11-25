@@ -402,10 +402,11 @@ readers that fell behind or failed, a failed correctness check) or `failed` (it 
 are aggregated, and `run` exits with code 1 if any run is not `ok`.
 
 Starting a campaign again skips the runs that are already `ok` and retries the others, so an interrupted campaign
-resumes where it stopped. Every run file carries a hash of its definition — parameters, the baseline or candidate
-as built (with the SHA-256 of the distribution's files and of the overlay, or the image id), its configuration and
-the client's — and the runner refuses to resume over files made from a different definition. Delete
-`results/<campaign>` to start over.
+resumes where it stopped. A runner stopped by Ctrl+C or `kill` stops what it has started — a build, the server, the
+client — on the way out; after `kill -9` they keep running, and the next campaign may find the port taken. Every
+run file carries a hash of its definition — parameters, the baseline or candidate as built (with the SHA-256 of the
+distribution's files and of the overlay, or the image id), its configuration and the client's — and the runner
+refuses to resume over files made from a different definition. Delete `results/<campaign>` to start over.
 
 **Disk.** The server data of a run is deleted before the next run starts, and right after the run when it is
 `ok`. Before every run that starts a server the runner estimates what the run may write — messages × (payload + 64 bytes) plus 1 GB,

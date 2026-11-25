@@ -3,17 +3,52 @@ package io.github.green4j.timebase.perftests;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class RunnerTest {
 
     private static JsonNode json(String text) throws Exception {
         return Output.JSON.readTree(text);
+    }
+
+    /** A runner with a long child: prints the child's pid and waits to be stopped. */
+    public static void main(String[] args) throws Exception {
+        Runner.stopChildrenOnExit();
+        final Process child = new ProcessBuilder("sleep", "60").start();
+        System.out.println(child.pid());
+        System.out.flush();
+        Thread.sleep(60_000);
+    }
+
+    @Test
+    void aRunnerStoppedBySignalStopsItsChildren() throws Exception {
+        final Process runner = new ProcessBuilder(Path.of(System.getProperty("java.home"), "bin", "java").toString(),
+                "-cp", System.getProperty("java.class.path"), RunnerTest.class.getName())
+                .redirectError(ProcessBuilder.Redirect.INHERIT).start();
+        try {
+            final String pid = new BufferedReader(new InputStreamReader(runner.getInputStream(), StandardCharsets.UTF_8)).readLine();
+            final ProcessHandle child = ProcessHandle.of(Long.parseLong(pid.trim())).orElseThrow();
+
+            runner.destroy();
+
+            assertTrue(runner.waitFor(30, TimeUnit.SECONDS), "The runner did not exit on SIGTERM");
+            child.onExit().completeOnTimeout(child, 10, TimeUnit.SECONDS).get();
+            assertFalse(child.isAlive(), "A child outlived the runner stopped by a signal");
+        } finally {
+            runner.destroyForcibly();
+        }
     }
 
     @Test
