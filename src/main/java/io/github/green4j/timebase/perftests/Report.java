@@ -131,6 +131,11 @@ final class Report {
         if (types.contains("latency"))
             md.printf("- Percentiles and max come first from the histograms of all the runs merged, as JMH pools samples, then "
                     + "`runs` gives the mean ± std dev of the runs' own values. Runs recorded without histograms get the mean only.%n");
+        if (types.contains("latency") || types.contains("throughput"))
+            md.printf("- Every latency, send() time and rate is a difference of `System.nanoTime()`, the monotonic clock, in "
+                    + "one JVM: the writer and the measured reader share it, so no clocks are synchronised and wall-clock "
+                    + "adjustments do not affect them. The wall clock only stamps runs, times them in Time and bounds the "
+                    + "waits.%n");
         if (types.contains("latency")) {
             md.printf("- Latency metrics, all lower is better:%n");
             md.printf("  - p50, p99, p99.9, p99.99, max, ms: transport, `receive − sent`, from just before the writer's `send()` "

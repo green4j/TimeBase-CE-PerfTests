@@ -452,6 +452,10 @@ scheduled ──(waiting to be sent)──► sent ──(send())──► send(
   ones.
 - **After the client**, in both: the connection, the server, the delivery and the wakeup of the reader.
 
+Every interval, like every `send()` time and rate, is a difference of `System.nanoTime()`, the monotonic clock, in one
+JVM: the writer and the measured reader run in it, so no clocks are synchronised and wall-clock adjustments do not
+affect them. The wall clock only stamps runs, times them in the Time table and bounds the waits.
+
 Percentiles of the intervals do not add up — the tails of different messages differ — they show where to look.
 
 - **Transport and from schedule.** Equal: the writer started `send()` on schedule, so the delay is in `send()` or
