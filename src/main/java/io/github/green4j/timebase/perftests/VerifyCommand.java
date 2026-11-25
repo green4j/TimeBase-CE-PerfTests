@@ -32,19 +32,22 @@ final class VerifyCommand {
         private final String[] symbols;
         private final long baseNanos;
         private final boolean slow;
+        private final ChannelPerformance mode;
         private final CountDownLatch live;
         volatile long received;
         volatile long violations;
         volatile String firstViolation;
         volatile String error;
 
-        Reader(String name, String url, String key, String[] symbols, long baseNanos, boolean slow, CountDownLatch live) {
+        Reader(String name, String url, String key, String[] symbols, long baseNanos, boolean slow, ChannelPerformance mode,
+               CountDownLatch live) {
             super(name);
             this.url = url;
             this.key = key;
             this.symbols = symbols;
             this.baseNanos = baseNanos;
             this.slow = slow;
+            this.mode = mode;
             this.live = live;
             setDaemon(true);
         }
@@ -54,7 +57,7 @@ final class VerifyCommand {
             final DXTickDB db = Tb.open(url, true);
             final DXTickStream stream = db.getStream(key);
             long expected = 0;
-            try (TickCursor cursor = Tb.liveCursor(db, stream, false)) {
+            try (TickCursor cursor = Tb.liveCursor(db, stream, false, mode)) {
                 while (cursor.next()) {
                     if (Tb.isRealTimeStart(cursor.getMessage())) {
                         live.countDown();
@@ -87,6 +90,7 @@ final class VerifyCommand {
         final String url = args.string("url");
         final String key = args.string("stream");
         final ChannelPerformance performance = args.enumValue("mode", ChannelPerformance.class, ChannelPerformance.MIN_CPU_USAGE);
+        final ChannelPerformance readerMode = Tb.readerMode(args);
         final long total = args.longValue("total", 1_000_000);
         final int live = args.integer("liveReaders", 8);
         final int burst = args.integer("burst", 2000);
@@ -102,9 +106,9 @@ final class VerifyCommand {
         final CountDownLatch lateLive = new CountDownLatch(1);
         final List<Reader> readers = new ArrayList<>();
         for (int i = 0; i < live; i++)
-            readers.add(new Reader("live-" + i, url, key, symbols, baseNanos, false, initialLive));
-        readers.add(new Reader("slow", url, key, symbols, baseNanos, true, initialLive));
-        final Reader late = new Reader("late", url, key, symbols, baseNanos, false, lateLive);
+            readers.add(new Reader("live-" + i, url, key, symbols, baseNanos, false, readerMode, initialLive));
+        readers.add(new Reader("slow", url, key, symbols, baseNanos, true, readerMode, initialLive));
+        final Reader late = new Reader("late", url, key, symbols, baseNanos, false, readerMode, lateLive);
         for (Reader r : readers)
             r.start();
         readers.add(late);

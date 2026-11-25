@@ -36,11 +36,11 @@ final class Profiles {
 
     /** Parameters each suite type understands. */
     static final Map<String, Set<String>> KEYS = Map.of(
-            "latency", Set.of("mode", "rate", "burst", "readers", "symbols", "payloadBytes", "warmupMessages",
+            "latency", Set.of("mode", "readerMode", "rate", "burst", "readers", "symbols", "payloadBytes", "warmupMessages",
                     "warmupSeconds", "measureSeconds", "measureMessages", "drainSeconds"),
-            "throughput", Set.of("mode", "readers", "symbols", "payloadBytes", "warmupSeconds", "measureSeconds",
+            "throughput", Set.of("mode", "readerMode", "readers", "symbols", "payloadBytes", "warmupSeconds", "measureSeconds",
                     "drainSeconds", "raw"),
-            "correctness", Set.of("mode", "total", "liveReaders", "symbols", "burst", "pauseMillis", "timeoutSeconds",
+            "correctness", Set.of("mode", "readerMode", "total", "liveReaders", "symbols", "burst", "pauseMillis", "timeoutSeconds",
                     "clientTimeoutSeconds"));
 
     private static final Set<String> PROFILE_KEYS = Set.of("name", "description", "type", "topology", "seed", "loads",

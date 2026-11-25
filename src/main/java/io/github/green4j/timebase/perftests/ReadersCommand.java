@@ -1,5 +1,6 @@
 package io.github.green4j.timebase.perftests;
 
+import com.epam.deltix.qsrv.hf.pub.ChannelPerformance;
 import com.epam.deltix.qsrv.hf.tickdb.pub.DXTickDB;
 import com.epam.deltix.qsrv.hf.tickdb.pub.DXTickStream;
 import com.epam.deltix.qsrv.hf.tickdb.pub.TickCursor;
@@ -33,6 +34,7 @@ final class ReadersCommand {
         final String key = args.string("stream");
         final int readers = args.integer("readers");
         final boolean raw = args.bool("raw", true);
+        final ChannelPerformance readerMode = Tb.readerMode(args);
 
         final DXTickDB admin = Tb.open(url, false);
         Tb.createStream(admin, key);
@@ -44,7 +46,7 @@ final class ReadersCommand {
             final int reader = r;
             final Thread thread = new Thread(() -> {
                 final DXTickDB db = Tb.open(url, true);
-                try (TickCursor cursor = Tb.liveCursor(db, db.getStream(key), raw)) {
+                try (TickCursor cursor = Tb.liveCursor(db, db.getStream(key), raw, readerMode)) {
                     long n = 0;
                     while (cursor.next()) {
                         if (Tb.isRealTimeStart(cursor.getMessage()))

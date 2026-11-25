@@ -180,6 +180,7 @@ loader's `ChannelPerformance`: `MIN_CPU_USAGE`, `HIGH_THROUGHPUT`, `LOW_LATENCY`
 | Parameter | Required | Default | Meaning |
 |---|---|---|---|
 | `mode` | | `LOW_LATENCY` | Loader mode |
+| `readerMode` | | `MIN_CPU_USAGE` | Cursor mode of the readers; with `LOW_LATENCY` the server polls its virtual channel to them every ~20 µs instead of flushing it by a 1 ms timer |
 | `rate` | | 200000 | Messages per second, on average |
 | `burst` | | 1 | Messages sent back to back at each tick of the schedule |
 | `readers` | | 1 | Live readers, the measured one included |
@@ -196,6 +197,7 @@ loader's `ChannelPerformance`: `MIN_CPU_USAGE`, `HIGH_THROUGHPUT`, `LOW_LATENCY`
 | Parameter | Required | Default | Meaning |
 |---|---|---|---|
 | `mode` | | `MIN_CPU_USAGE` | Loader mode |
+| `readerMode` | | `MIN_CPU_USAGE` | Cursor mode of the readers; with `LOW_LATENCY` the server polls its virtual channel to them every ~20 µs instead of flushing it by a 1 ms timer |
 | `readers` | | 0 | Live readers; 0 measures the writer alone |
 | `symbols` | | 1 | Symbols, round-robin |
 | `payloadBytes` | | 0 | Payload bytes on top of the message's own fields |
@@ -209,6 +211,7 @@ loader's `ChannelPerformance`: `MIN_CPU_USAGE`, `HIGH_THROUGHPUT`, `LOW_LATENCY`
 | Parameter | Required | Default | Meaning |
 |---|---|---|---|
 | `mode` | | `MIN_CPU_USAGE` | Loader mode |
+| `readerMode` | | `MIN_CPU_USAGE` | Cursor mode of the readers; with `LOW_LATENCY` the server polls its virtual channel to them every ~20 µs instead of flushing it by a 1 ms timer |
 | `total` | | 1000000 | Messages written |
 | `liveReaders` | | 8 | Live readers, besides one slow and one late-joining reader |
 | `symbols` | | 100 | Symbols, round-robin |

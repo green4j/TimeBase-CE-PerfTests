@@ -54,10 +54,16 @@ final class Tb {
         return (TickLoader<InstrumentMessage>) (TickLoader<?>) stream.createLoader(options);
     }
 
+    /** The cursor mode of the readers, {@code readerMode}: the client's default, MIN_CPU_USAGE, unless given. */
+    static ChannelPerformance readerMode(Args args) {
+        return args.enumValue("readerMode", ChannelPerformance.class, ChannelPerformance.MIN_CPU_USAGE);
+    }
+
     /** A live cursor from the start of the stream that emits a {@link RealTimeStartMessage} once it is live. */
-    static TickCursor liveCursor(DXTickDB db, DXTickStream stream, boolean raw) {
+    static TickCursor liveCursor(DXTickDB db, DXTickStream stream, boolean raw, ChannelPerformance mode) {
         final SelectionOptions options = new SelectionOptions(raw, true);
         options.realTimeNotification = true;
+        options.channelPerformance = mode;
         return db.select(Long.MIN_VALUE, options, stream);
     }
 

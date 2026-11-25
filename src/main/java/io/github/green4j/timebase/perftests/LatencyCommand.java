@@ -199,6 +199,7 @@ final class LatencyCommand {
         final String url = args.string("url");
         final String key = args.string("stream");
         final ChannelPerformance performance = args.enumValue("mode", ChannelPerformance.class, ChannelPerformance.LOW_LATENCY);
+        final ChannelPerformance readerMode = Tb.readerMode(args);
         final long rate = args.longValue("rate", 200_000);
         final int burst = args.integer("burst", 1);
         final int readers = args.integer("readers", 1);
@@ -226,10 +227,10 @@ final class LatencyCommand {
         final CountDownLatch live = new CountDownLatch(readers);
         final ExtraReader[] extras = new ExtraReader[readers - 1];
         for (int r = 0; r < extras.length; r++) {
-            extras[r] = new ExtraReader(Tb.liveCursor(db, stream, false), total, symbols.length, live, r);
+            extras[r] = new ExtraReader(Tb.liveCursor(db, stream, false, readerMode), total, symbols.length, live, r);
             extras[r].start();
         }
-        final TickCursor measuredCursor = Tb.liveCursor(db, stream, false);
+        final TickCursor measuredCursor = Tb.liveCursor(db, stream, false, readerMode);
         final MeasuredReader reader = new MeasuredReader(measuredCursor, measuredFrom, total, symbols.length, live);
         reader.start();
         if (!live.await(60, TimeUnit.SECONDS))
